@@ -140,19 +140,7 @@ async def collect_targets(client: TelegramClient):
     targets = []
     seen_ids = set()
 
-    # Contacts
-    try:
-        contacts_res = await client(GetContactsRequest(hash=0))
-        for u in contacts_res.users:
-            if u.is_self or u.bot or getattr(u, 'deleted', False):
-                continue
-            seen_ids.add(u.id)
-            name = f"{u.first_name or ''} {u.last_name or ''}".strip()
-            targets.append((f"Contact: {name or 'User'}", u, 'private'))
-    except Exception as e:
-        log_event(f"Notice: Failed to fetch contacts list: {e}", "WARNING")
-
-    # Dialogs
+    # 1. Active Dialogs First (Existing Direct Chats, Groups, Channels)
     dialogs = await client.get_dialogs()
     for d in dialogs:
         if getattr(d.entity, 'deactivated', False) or getattr(d.entity, 'migrated_to', None):
@@ -175,6 +163,20 @@ async def collect_targets(client: TelegramClient):
                 creator = getattr(d.entity, 'creator', False)
                 if creator or (admin_rights and admin_rights.post_messages):
                     targets.append((f"Channel: {d.title}", d.input_entity, 'private'))
+
+    # 2. Remaining Contacts from address book
+    try:
+        contacts_res = await client(GetContactsRequest(hash=0))
+        for u in contacts_res.users:
+            if u.is_self or u.bot or getattr(u, 'deleted', False):
+                continue
+            if u.id in seen_ids:
+                continue
+            seen_ids.add(u.id)
+            name = f"{u.first_name or ''} {u.last_name or ''}".strip()
+            targets.append((f"Contact: {name or 'User'}", u, 'private'))
+    except Exception as e:
+        log_event(f"Notice: Failed to fetch contacts list: {e}", "WARNING")
 
     state["total_targets"] = len(targets)
     state["private_targets"] = sum(1 for t in targets if t[2] == 'private')
@@ -225,8 +227,8 @@ async def execute_broadcast():
                 except (ChatWriteForbiddenError, UserBannedInChannelError, UserIsBlockedError) as e:
                     fail_count += 1
                 except PeerFloodError:
-                    log_event("Telegram PeerFloodError limit hit! Stopping broadcast for now.", "ERROR")
-                    break
+                    log_event(f"PeerFloodError: skipped non-mutual contact {label}", "WARNING")
+                    fail_count += 1
                 except Exception as e:
                     fail_count += 1
 
