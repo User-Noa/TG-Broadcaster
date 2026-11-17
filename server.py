@@ -132,13 +132,9 @@ def message_has_links(msg):
 async def load_target_messages(client: TelegramClient):
     recent = await client.get_messages('me', limit=10)
     text_msgs = [m for m in recent if m.text and not m.media]
-    if len(text_msgs) < 2:
-        raise ValueError(f"Found {len(text_msgs)} text messages in Saved Messages; expected at least 2.")
-    msg_with_link = next((m for m in text_msgs if message_has_links(m)), None)
-    msg_no_link = next((m for m in text_msgs if not message_has_links(m)), None)
-    if not msg_with_link or not msg_no_link:
-        msg_no_link, msg_with_link = text_msgs[0], text_msgs[1]
-    return msg_with_link, msg_no_link
+    if not text_msgs:
+        raise ValueError("هیچ پیام متنی در Saved Messages یافت نشد.")
+    return text_msgs[0]
 
 async def collect_targets(client: TelegramClient):
     targets = []
@@ -198,22 +194,19 @@ async def execute_broadcast():
         state["broadcast_running"] = True
         log_event("🚀 Starting Telegram broadcast cycle...")
         try:
-            msg_with_link, msg_no_link = await load_target_messages(telegram_client)
+            target_msg = await load_target_messages(telegram_client)
             targets = await collect_targets(telegram_client)
             
             success_count = 0
             fail_count = 0
 
             for idx, (label, entity, kind) in enumerate(targets, start=1):
-                target_msg = msg_no_link if kind == 'group' else msg_with_link
-                link_preview = (kind != 'group')
-
                 try:
                     await telegram_client.send_message(
                         entity,
                         message=target_msg.text,
                         formatting_entities=target_msg.entities,
-                        link_preview=link_preview
+                        link_preview=False
                     )
                     success_count += 1
                 except FloodWaitError as e:
@@ -224,7 +217,7 @@ async def execute_broadcast():
                             entity,
                             message=target_msg.text,
                             formatting_entities=target_msg.entities,
-                            link_preview=link_preview
+                            link_preview=False
                         )
                         success_count += 1
                     except Exception:
