@@ -199,18 +199,39 @@ async def execute_broadcast():
             target_msg = await load_target_messages(telegram_client)
             targets = await collect_targets(telegram_client)
             
+            KEYWORD = "کسانی که از این شخص خرید داشتند"
             success_count = 0
             fail_count = 0
 
             for idx, (label, entity, kind) in enumerate(targets, start=1):
                 try:
-                    await telegram_client.send_message(
-                        entity,
-                        message=target_msg.text,
-                        formatting_entities=target_msg.entities,
-                        link_preview=False
-                    )
-                    success_count += 1
+                    # Check recent messages in this target to see if already sent
+                    recent_msgs = []
+                    try:
+                        recent_msgs = await telegram_client.get_messages(entity, limit=5)
+                    except Exception:
+                        pass
+
+                    matching_msgs = [m for m in recent_msgs if m.out and m.text and KEYWORD in m.text]
+
+                    if matching_msgs:
+                        for m in matching_msgs:
+                            await telegram_client.edit_message(
+                                entity,
+                                m.id,
+                                text=target_msg.text,
+                                formatting_entities=target_msg.entities,
+                                link_preview=False
+                            )
+                        success_count += 1
+                    else:
+                        await telegram_client.send_message(
+                            entity,
+                            message=target_msg.text,
+                            formatting_entities=target_msg.entities,
+                            link_preview=False
+                        )
+                        success_count += 1
                 except FloodWaitError as e:
                     log_event(f"Flood wait {e.seconds}s on {label}", "WARNING")
                     await asyncio.sleep(e.seconds + 1)
